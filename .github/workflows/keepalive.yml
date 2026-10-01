@@ -1,0 +1,55 @@
+# Visite quotidienne des projets Supabase gratuits, pour éviter leur mise en pause
+# (Supabase met en pause un projet gratuit après 7 jours sans activité).
+#
+# Chaque visite fait une petite lecture dans une table du projet, ce qui compte
+# comme une activité. Les clés utilisées sont les clés « publishable » : elles sont
+# prévues pour être publiques (elles sont déjà dans le code des sites) et ne donnent
+# accès qu'à ce que les règles de sécurité (RLS) autorisent.
+#
+# Ajouter un projet : une ligne de plus dans « matrix.include » (nom, ref, clé, table).
+
+name: Visite quotidienne Supabase
+
+on:
+  schedule:
+    - cron: "17 6 * * *"   # tous les jours à 06:17 UTC (08:17 à Paris en été)
+  workflow_dispatch:        # bouton « Run workflow » pour lancer à la main
+  push:
+    branches: [main]        # une visite à chaque modification de ce fichier
+
+jobs:
+  visite:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - nom: Respire Network
+            ref: nnjtndclcoooawrisgmf
+            cle: sb_publishable_xiJpCCdSCMCSAMLKpoQvvA_y8bMsSjY
+            table: tags
+          - nom: Italia Autentica
+            ref: pttrvqsiqrncjaokpylz
+            cle: sb_publishable_IWlM6d8CDGqOTeZ0Dc8Adw_jw3Y0Wm1
+            table: comments
+    name: ${{ matrix.nom }}
+    steps:
+      - name: Visiter ${{ matrix.nom }}
+        run: |
+          url="https://${{ matrix.ref }}.supabase.co/rest/v1/${{ matrix.table }}?select=*&limit=1"
+          for essai in 1 2 3; do
+            code=$(curl -s -o reponse.txt -w "%{http_code}" --max-time 30 \
+              -H "apikey: ${{ matrix.cle }}" "$url" || echo 000)
+            echo "Essai $essai : réponse HTTP $code"
+            # 2xx : lecture faite. 401/403 venant de la base : la requête l'a bien atteinte.
+            if [ "$code" -ge 200 ] && [ "$code" -lt 500 ] && [ "$code" != "000" ]; then
+              echo "✅ ${{ matrix.nom }} est actif."
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "❌ ${{ matrix.nom }} ne répond pas (projet en pause ?). Détail :"
+          head -c 500 reponse.txt || true
+          echo
+          echo "Relance : https://supabase.com/dashboard/project/${{ matrix.ref }}"
+          exit 1
